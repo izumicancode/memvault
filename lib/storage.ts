@@ -1,0 +1,269 @@
+import type { Memo, MemoMeta } from './types';
+
+const DB_NAME = 'memo-vault';
+const DB_VERSION = 1;
+const STORE = 'memos';
+const LOCK_KEY = 'memo-vault-pin';
+const ATTEMPTS_KEY = 'memo-vault-pin-attempts';
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+
+export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE;
+
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveMemo(memo: Memo): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      const putReq = store.put(memo);
+      
+      putReq.onsuccess = () => {
+        console.log('[memVault] Put operation succeeded:', memo.id);
+      };
+      putReq.onerror = () => {
+        console.error('[memVault] Put operation failed:', putReq.error);
+      };
+      
+      tx.oncomplete = () => { 
+        console.log('[memVault] Transaction complete for memo:', memo.id);
+        db.close(); 
+        resolve(); 
+      };
+      tx.onerror = () => { 
+        console.error('[memVault] Transaction error:', tx.error);
+        db.close(); 
+        reject(new Error(`Transaction failed: ${tx.error}`));
+      };
+      tx.onabort = () => {
+        console.error('[memVault] Transaction aborted');
+        db.close();
+        reject(new Error('Transaction aborted'));
+      };
+    } catch (error) {
+      db.close();
+      reject(error);
+    }
+  });
+}
+
+export async function deleteMemo(id: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(id);
+      tx.oncomplete = () => { 
+        console.log('[memVault] Memo deleted:', id);
+        db.close(); 
+        resolve(); 
+      };
+      tx.onerror = () => { 
+        console.error('[memVault] Delete transaction error:', tx.error);
+        db.close(); 
+        reject(tx.error); 
+      };
+    } catch (error) {
+      db.close();
+      reject(error);
+    }
+  });
+}
+
+export async function getMemo(id: string): Promise<Memo | undefined> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(id);
+      
+      req.onsuccess = () => { 
+        console.log('[memVault] Got memo:', id, !!req.result);
+        resolve(req.result as Memo | undefined); 
+      };
+      req.onerror = () => { 
+        console.error('[memVault] Get operation failed:', req.error);
+        reject(req.error); 
+      };
+      
+      tx.oncomplete = () => { db.close(); };
+      tx.onerror = () => { 
+        console.error('[memVault] Get transaction error:', tx.error);
+        reject(tx.error); 
+      };
+    } catch (error) {
+      db.close();
+      reject(error);
+    }
+  });
+}
+
+export async function listMemos(): Promise<MemoMeta[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).getAll();
+      
+      req.onsuccess = () => {
+        const all = (req.result as Memo[]) ?? [];
+        console.log('[memVault] Loaded memos count:', all.length);
+        const metas: MemoMeta[] = all
+          .map((m) => ({
+            id: m.id,
+            type: m.type,
+            title: m.title,
+            mimeType: m.mimeType,
+            durationMs: m.durationMs,
+            createdAt: m.createdAt,
+            size: m.size,
+          }))
+          .sort((a, b) => b.createdAt - a.createdAt);
+        resolve(metas);
+      };
+      
+      req.onerror = () => { 
+        console.error('[memVault] GetAll operation failed:', req.error);
+        reject(req.error); 
+      };
+      
+      tx.oncomplete = () => { db.close(); };
+      tx.onerror = () => { 
+        console.error('[memVault] List transaction error:', tx.error);
+        reject(tx.error); 
+      };
+    } catch (error) {
+      db.close();
+      reject(error);
+    }
+  });
+}
+
+// --- PIN lock ---
+// The PIN is hashed with SHA-256 via the Web Crypto API before storage.
+// This prevents the raw PIN from being readable in localStorage/DevTools.
+// Note: this is a client-side lock for casual privacy, not cryptographic security.
+
+async function hashPin(pin: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`memo-vault-salt:${pin}`);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Constant-time string comparison to avoid timing side-channels.
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+export async function setPin(pin: string): Promise<void> {
+  const hashed = await hashPin(pin);
+  try {
+    localStorage.setItem(LOCK_KEY, hashed);
+    resetAttempts();
+  } catch {
+    // ignore
+  }
+}
+
+export function clearPin(): void {
+  try {
+    localStorage.removeItem(LOCK_KEY);
+    resetAttempts();
+  } catch {
+    // ignore
+  }
+}
+
+export function hasPin(): boolean {
+  try {
+    return localStorage.getItem(LOCK_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function getHashedPin(): string | null {
+  try {
+    return localStorage.getItem(LOCK_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyPin(pin: string): Promise<boolean> {
+  const stored = getHashedPin();
+  if (!stored) return false;
+  const hashed = await hashPin(pin);
+  return constantTimeEqual(hashed, stored);
+}
+
+// --- Brute-force protection ---
+// Tracks failed attempts and enforces a backoff after too many tries.
+
+interface AttemptState {
+  count: number;
+  lockedUntil: number;
+}
+
+const MAX_ATTEMPTS = 5;
+const BACKOFF_MS = [0, 0, 0, 0, 30_000, 60_000, 300_000]; // 30s, 60s, 5min
+
+function getAttempts(): AttemptState {
+  try {
+    const raw = localStorage.getItem(ATTEMPTS_KEY);
+    if (!raw) return { count: 0, lockedUntil: 0 };
+    return JSON.parse(raw) as AttemptState;
+  } catch {
+    return { count: 0, lockedUntil: 0 };
+  }
+}
+
+function saveAttempts(state: AttemptState): void {
+  try {
+    localStorage.setItem(ATTEMPTS_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+export function resetAttempts(): void {
+  saveAttempts({ count: 0, lockedUntil: 0 });
+}
+
+export function isLockedOut(): boolean {
+  const state = getAttempts();
+  return Date.now() < state.lockedUntil;
+}
+
+export function getLockoutMsRemaining(): number {
+  const state = getAttempts();
+  return Math.max(0, state.lockedUntil - Date.now());
+}
+
+export function recordFailedAttempt(): void {
+  const state = getAttempts();
+  const newCount = state.count + 1;
+  const backoffIndex = Math.min(newCount, BACKOFF_MS.length - 1);
+  const backoff = BACKOFF_MS[backoffIndex] ?? 0;
+  saveAttempts({ count: newCount, lockedUntil: backoff > 0 ? Date.now() + backoff : 0 });
+}
