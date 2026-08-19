@@ -26,6 +26,12 @@
     },
     "android": {
       "package": "com.anonymous.memovault"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1f03320d-3fc9-4691-a6fd-424a98158a24"
+      }
     }
   }
 }
