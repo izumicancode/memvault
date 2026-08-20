@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Platform, AppState } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { hasPin, isBiometricEnabled } from './storage';
+import { hasPin, isBiometricEnabled, waitForSecurityStorage } from './storage';
 
 interface LockState {
   isLocked: boolean;
@@ -40,13 +40,16 @@ export function LockProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    refreshPinStatus();
-    if (!hasPin()) {
-      setIsLocked(false);
-    }
-    if (hasPin() && isBiometricEnabled()) {
-      authenticateWithBiometrics().catch(() => {});
-    }
+    const refreshSecurity = async () => {
+      await waitForSecurityStorage();
+      refreshPinStatus();
+      if (!hasPin()) {
+        setIsLocked(false);
+      } else if (isBiometricEnabled()) {
+        authenticateWithBiometrics().catch(() => {});
+      }
+    };
+    void refreshSecurity();
   }, []);
 
   useEffect(() => {

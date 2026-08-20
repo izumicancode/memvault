@@ -16,6 +16,20 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
 
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE;
 
+let nativePinHash: string | null | undefined;
+let nativeBiometricEnabled = false;
+let nativeSecurityReady: Promise<void> = Promise.resolve();
+if (isNative()) {
+  nativeSecurityReady = AsyncStorage.multiGet([LOCK_KEY, BIOMETRIC_KEY]).then(([pinEntry, biometricEntry]) => {
+    nativePinHash = pinEntry[1];
+    nativeBiometricEnabled = biometricEntry[1] === 'true';
+  });
+}
+
+export function waitForSecurityStorage(): Promise<void> {
+  return nativeSecurityReady;
+}
+
 type NativeMemo = Omit<Memo, 'blob'> & { blobData: string };
 
 function isNative(): boolean {
@@ -223,13 +237,14 @@ export async function getMemoPlaybackUri(id: string): Promise<string | undefined
   };
   const extension = extensionByMime[memo.mimeType] ?? (memo.type === 'video' ? 'mp4' : 'm4a');
   const file = new File(Paths.cache, `memo-vault-${id}.${extension}`);
-  file.write(encoded, { encoding: 'base64' });
+  await file.write(encoded, { encoding: 'base64' });
   return file.uri;
 }
 
 export async function listMemos(): Promise<MemoMeta[]> {
   if (isNative()) {
     return (await getNativeMemos())
+      .filter((memo) => !memo.deletedAt)
       .map(({ blobData: _blobData, ...memo }) => memo)
       .sort((a, b) => b.createdAt - a.createdAt);
   }
@@ -334,6 +349,12 @@ function constantTimeEqual(a: string, b: string): boolean {
 
 export async function setPin(pin: string): Promise<void> {
   const hashed = await hashPin(pin);
+  if (isNative()) {
+    nativePinHash = hashed;
+    resetAttempts();
+    await AsyncStorage.setItem(LOCK_KEY, hashed);
+    return;
+  }
   try {
     localStorage.setItem(LOCK_KEY, hashed);
     resetAttempts();
@@ -343,6 +364,12 @@ export async function setPin(pin: string): Promise<void> {
 }
 
 export function clearPin(): void {
+  if (isNative()) {
+    nativePinHash = null;
+    nativeBiometricEnabled = false;
+    void AsyncStorage.multiRemove([LOCK_KEY, BIOMETRIC_KEY, ATTEMPTS_KEY]);
+    return;
+  }
   try {
     localStorage.removeItem(LOCK_KEY);
     localStorage.removeItem(BIOMETRIC_KEY);
@@ -353,6 +380,7 @@ export function clearPin(): void {
 }
 
 export function hasPin(): boolean {
+  if (isNative()) return nativePinHash != null;
   try {
     return localStorage.getItem(LOCK_KEY) !== null;
   } catch {
@@ -361,6 +389,7 @@ export function hasPin(): boolean {
 }
 
 export function isBiometricEnabled(): boolean {
+  if (isNative()) return nativeBiometricEnabled;
   try {
     return localStorage.getItem(BIOMETRIC_KEY) === 'true';
   } catch {
@@ -369,6 +398,12 @@ export function isBiometricEnabled(): boolean {
 }
 
 export function setBiometricEnabled(enabled: boolean): void {
+  if (isNative()) {
+    nativeBiometricEnabled = enabled;
+    if (enabled) void AsyncStorage.setItem(BIOMETRIC_KEY, 'true');
+    else void AsyncStorage.removeItem(BIOMETRIC_KEY);
+    return;
+  }
   try {
     if (enabled) localStorage.setItem(BIOMETRIC_KEY, 'true');
     else localStorage.removeItem(BIOMETRIC_KEY);
@@ -378,6 +413,7 @@ export function setBiometricEnabled(enabled: boolean): void {
 }
 
 export function getHashedPin(): string | null {
+  if (isNative()) return nativePinHash ?? null;
   try {
     return localStorage.getItem(LOCK_KEY);
   } catch {

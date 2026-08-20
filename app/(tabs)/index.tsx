@@ -22,6 +22,7 @@ export default function RecordScreen() {
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const nativeRecordingRef = useRef<Audio.Recording | null>(null);
@@ -63,9 +64,11 @@ export default function RecordScreen() {
   };
 
   const startTimer = () => {
+    elapsedRef.current = 0;
     setElapsed(0);
     timerRef.current = setInterval(() => {
-      setElapsed((e) => e + 100);
+      elapsedRef.current += 100;
+      setElapsed(elapsedRef.current);
     }, 100);
   };
 
@@ -146,7 +149,7 @@ export default function RecordScreen() {
           title,
           blob,
           mimeType: blob.type,
-          durationMs: elapsed,
+          durationMs: elapsedRef.current,
           createdAt: Date.now(),
           size: blob.size,
         };
@@ -210,7 +213,7 @@ export default function RecordScreen() {
             title: `Voice Memo ${new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
             blob,
             mimeType: blob.type || 'audio/mp4',
-            durationMs: elapsed,
+            durationMs: elapsedRef.current,
             createdAt: Date.now(),
             size: blob.size,
           });
@@ -350,13 +353,12 @@ export default function RecordScreen() {
 
       {!isWeb && (
         <View style={styles.notice}>
-          <Text style={styles.noticeText}>Audio recording is ready on this device. Video recording is available in the web preview.</Text>
+          <Text style={styles.noticeText}>Audio recording is saved privately on this device. Use the controls below to begin.</Text>
         </View>
       )}
 
-      {isWeb && (
-        <>
-          <View style={styles.modeSwitch}>
+      <>
+          {isWeb && <View style={styles.modeSwitch}>
             <TouchableOpacity
               style={[styles.modeBtn, mode === 'audio' && styles.modeBtnActive]}
               onPress={() => switchMode('audio')}
@@ -373,7 +375,7 @@ export default function RecordScreen() {
               <Video size={18} color={mode === 'video' ? colors.text : colors.textDim} strokeWidth={2} />
               <Text style={[styles.modeBtnText, mode === 'video' && styles.modeBtnTextActive]}>Video</Text>
             </TouchableOpacity>
-          </View>
+          </View>}
 
           <View style={styles.previewArea}>
             {mode === 'video' && (
@@ -433,13 +435,12 @@ export default function RecordScreen() {
             )}
           </View>
 
-          {/* Hidden file input for uploads */}
-          <input
+          {isWeb && <input
             ref={fileInputRef}
             type="file"
             style={{ display: 'none' }}
             onChange={handleFileUpload}
-          />
+          />}
 
           {/* Add menu modal */}
           {showAddMenu && (
@@ -469,7 +470,6 @@ export default function RecordScreen() {
             </TouchableOpacity>
           )}
         </>
-      )}
     </View>
   );
 }
