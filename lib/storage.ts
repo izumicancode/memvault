@@ -1,14 +1,47 @@
 import type { Memo, MemoMeta } from './types';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const DB_NAME = 'memo-vault';
 const DB_VERSION = 1;
 const STORE = 'memos';
+const NATIVE_MEMOS_KEY = 'memo-vault-native-memos';
 const LOCK_KEY = 'memo-vault-pin';
 const BIOMETRIC_KEY = 'memo-vault-biometric';
 const ATTEMPTS_KEY = 'memo-vault-pin-attempts';
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
 
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE;
+
+type NativeMemo = Omit<Memo, 'blob'> & { blobData: string };
+
+function isNative(): boolean {
+  return Platform.OS !== 'web';
+}
+
+async function blobToDataUri(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+  return `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
+function dataUriToBlob(dataUri: string): Blob {
+  const [header, encoded] = dataUri.split(',');
+  const binary = atob(encoded ?? '');
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: header?.match(/data:([^;]+)/)?.[1] ?? 'application/octet-stream' });
+}
+
+async function getNativeMemos(): Promise<NativeMemo[]> {
+  const raw = await AsyncStorage.getItem(NATIVE_MEMOS_KEY);
+  return raw ? JSON.parse(raw) as NativeMemo[] : [];
+}
+
+async function saveNativeMemos(memos: NativeMemo[]): Promise<void> {
+  await AsyncStorage.setItem(NATIVE_MEMOS_KEY, JSON.stringify(memos));
+}
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -25,6 +58,14 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 export async function saveMemo(memo: Memo): Promise<void> {
+  if (isNative()) {
+    const memos = await getNativeMemos();
+    const nativeMemo: NativeMemo = { ...memo, blobData: await blobToDataUri(memo.blob) };
+    const next = memos.filter((item) => item.id !== memo.id);
+    next.push(nativeMemo);
+    await saveNativeMemos(next);
+    return;
+  }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     try {
@@ -62,6 +103,10 @@ export async function saveMemo(memo: Memo): Promise<void> {
 }
 
 export async function deleteMemo(id: string): Promise<void> {
+  if (isNative()) {
+    await saveNativeMemos((await getNativeMemos()).filter((memo) => memo.id !== id));
+    return;
+  }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     try {
@@ -91,6 +136,12 @@ export async function renameMemo(id: string, title: string): Promise<void> {
 }
 
 export async function getMemo(id: string): Promise<Memo | undefined> {
+  if (isNative()) {
+    const memo = (await getNativeMemos()).find((item) => item.id === id);
+    if (!memo) return undefined;
+    const { blobData, ...metadata } = memo;
+    return { ...metadata, blob: dataUriToBlob(blobData) };
+  }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     try {
@@ -119,6 +170,11 @@ export async function getMemo(id: string): Promise<Memo | undefined> {
 }
 
 export async function listMemos(): Promise<MemoMeta[]> {
+  if (isNative()) {
+    return (await getNativeMemos())
+      .map(({ blobData: _blobData, ...memo }) => memo)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     try {

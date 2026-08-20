@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, useWindowDimensions } from 'react-native';
+import { Audio } from 'expo-av';
 import { Mic, Video, Square, AudioLines, Camera, Upload, Plus } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
 import { saveMemo, MAX_FILE_SIZE_BYTES } from '@/lib/storage';
@@ -23,6 +24,7 @@ export default function RecordScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const nativeRecordingRef = useRef<Audio.Recording | null>(null);
 
   useEffect(() => {
     return () => {
@@ -79,6 +81,29 @@ export default function RecordScreen() {
 
   const startRecording = async () => {
     setError('');
+    if (Platform.OS !== 'web') {
+      if (mode === 'video') {
+        setError('Video recording is available in the web preview.');
+        return;
+      }
+      try {
+        const permission = await Audio.requestPermissionsAsync();
+        if (!permission.granted) {
+          setError('Microphone permission is required to record.');
+          return;
+        }
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+        const recording = new Audio.Recording();
+        await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        await recording.startAsync();
+        nativeRecordingRef.current = recording;
+        setState('recording');
+        startTimer();
+      } catch {
+        setError('Could not start recording. Check microphone permissions.');
+      }
+      return;
+    }
     try {
       // Stop preview stream first, we need audio+video
       if (streamRef.current) {
@@ -168,6 +193,39 @@ export default function RecordScreen() {
 
   const stopRecording = () => {
     stopTimer();
+    if (Platform.OS !== 'web') {
+      const recording = nativeRecordingRef.current;
+      if (!recording) return;
+      setState('saving');
+      void (async () => {
+        try {
+          await recording.stopAndUnloadAsync();
+          const uri = recording.getURI();
+          if (!uri) throw new Error('Recording file unavailable');
+          const blob = await (await fetch(uri)).blob();
+          const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          await saveMemo({
+            id,
+            type: 'audio',
+            title: `Voice Memo ${new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
+            blob,
+            mimeType: blob.type || 'audio/mp4',
+            durationMs: elapsed,
+            createdAt: Date.now(),
+            size: blob.size,
+          });
+          setError('');
+        } catch {
+          setError('Could not save the recording. Please try again.');
+        } finally {
+          nativeRecordingRef.current = null;
+          setState('idle');
+          setElapsed(0);
+          await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+        }
+      })();
+      return;
+    }
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       setState('saving');
@@ -292,7 +350,7 @@ export default function RecordScreen() {
 
       {!isWeb && (
         <View style={styles.notice}>
-          <Text style={styles.noticeText}>Recording is available on web preview.</Text>
+          <Text style={styles.noticeText}>Audio recording is ready on this device. Video recording is available in the web preview.</Text>
         </View>
       )}
 
