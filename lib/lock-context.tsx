@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { hasPin } from './storage';
+import { Platform } from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { hasPin, isBiometricEnabled } from './storage';
 
 interface LockState {
   isLocked: boolean;
@@ -7,6 +9,8 @@ interface LockState {
   unlock: () => void;
   lock: () => void;
   refreshPinStatus: () => void;
+  biometricEnabled: boolean;
+  authenticateWithBiometrics: () => Promise<boolean>;
 }
 
 const LockContext = createContext<LockState | null>(null);
@@ -14,13 +18,34 @@ const LockContext = createContext<LockState | null>(null);
 export function LockProvider({ children }: { children: ReactNode }) {
   const [isLocked, setIsLocked] = useState(true);
   const [pinExists, setPinExists] = useState(false);
+  const [biometricEnabled, setBiometricEnabledState] = useState(false);
 
-  const refreshPinStatus = () => setPinExists(hasPin());
+  const refreshPinStatus = () => {
+    setPinExists(hasPin());
+    setBiometricEnabledState(isBiometricEnabled());
+  };
+
+  const authenticateWithBiometrics = async () => {
+    if (Platform.OS === 'web' || !hasPin() || !isBiometricEnabled()) return false;
+    const available = await LocalAuthentication.hasHardwareAsync();
+    const enrolled = await LocalAuthentication.isEnrolledAsync();
+    if (!available || !enrolled) return false;
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Unlock Memo Vault',
+      cancelLabel: 'Use PIN',
+      disableDeviceFallback: true,
+    });
+    if (result.success) setIsLocked(false);
+    return result.success;
+  };
 
   useEffect(() => {
     refreshPinStatus();
     if (!hasPin()) {
       setIsLocked(false);
+    }
+    if (hasPin() && isBiometricEnabled()) {
+      authenticateWithBiometrics().catch(() => {});
     }
   }, []);
 
@@ -30,7 +55,7 @@ export function LockProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <LockContext.Provider value={{ isLocked, hasPin: pinExists, unlock, lock, refreshPinStatus }}>
+    <LockContext.Provider value={{ isLocked, hasPin: pinExists, unlock, lock, refreshPinStatus, biometricEnabled, authenticateWithBiometrics }}>
       {children}
     </LockContext.Provider>
   );

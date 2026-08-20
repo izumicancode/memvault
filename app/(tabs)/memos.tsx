@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, Modal, Platform, useWindowDimensions } from 'react-native';
 import { Mic, Video, Trash2, Play, Pause, X, FolderOpen } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
 import { listMemos, deleteMemo, getMemo } from '@/lib/storage';
@@ -14,6 +14,8 @@ export default function MemosScreen() {
   const [playingType, setPlayingType] = useState<'audio' | 'video'>('audio');
   const [isPaused, setIsPaused] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const { width } = useWindowDimensions();
+  const horizontalPadding = Math.min(spacing.lg, Math.max(spacing.md, width * 0.06));
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -144,7 +146,7 @@ export default function MemosScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Memos</Text>
         <Text style={styles.subtitle}>{memos.length} saved {memos.length === 1 ? 'memo' : 'memos'}</Text>

@@ -4,6 +4,7 @@ const DB_NAME = 'memo-vault';
 const DB_VERSION = 1;
 const STORE = 'memos';
 const LOCK_KEY = 'memo-vault-pin';
+const BIOMETRIC_KEY = 'memo-vault-biometric';
 const ATTEMPTS_KEY = 'memo-vault-pin-attempts';
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
 
@@ -188,6 +189,7 @@ export async function setPin(pin: string): Promise<void> {
 export function clearPin(): void {
   try {
     localStorage.removeItem(LOCK_KEY);
+    localStorage.removeItem(BIOMETRIC_KEY);
     resetAttempts();
   } catch {
     // ignore
@@ -199,6 +201,23 @@ export function hasPin(): boolean {
     return localStorage.getItem(LOCK_KEY) !== null;
   } catch {
     return false;
+  }
+}
+
+export function isBiometricEnabled(): boolean {
+  try {
+    return localStorage.getItem(BIOMETRIC_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setBiometricEnabled(enabled: boolean): void {
+  try {
+    if (enabled) localStorage.setItem(BIOMETRIC_KEY, 'true');
+    else localStorage.removeItem(BIOMETRIC_KEY);
+  } catch {
+    // ignore
   }
 }
 

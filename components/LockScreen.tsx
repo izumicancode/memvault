@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform } from 'react-native';
 import { useFonts } from 'expo-font';
 import { Inter_400Regular, Inter_700Bold } from '@expo-google-fonts/inter';
-import { Delete, Lock } from 'lucide-react-native';
+import { Delete, Fingerprint, Lock } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
 import { hasPin, setPin, verifyPin, isLockedOut, getLockoutMsRemaining, recordFailedAttempt, resetAttempts } from '@/lib/storage';
 import { useLock } from '@/lib/lock-context';
@@ -12,7 +12,7 @@ type Mode = 'unlock' | 'create' | 'confirm';
 
 export default function LockScreen() {
   const [fontsLoaded] = useFonts({ 'Inter-Regular': Inter_400Regular, 'Inter-Bold': Inter_700Bold });
-  const { unlock, refreshPinStatus } = useLock();
+  const { unlock, refreshPinStatus, biometricEnabled, authenticateWithBiometrics } = useLock();
   const [pin, setPinState] = useState('');
   const [mode, setMode] = useState<Mode>(() => (hasPin() ? 'unlock' : 'create'));
   const [firstPin, setFirstPin] = useState('');
@@ -105,6 +105,10 @@ export default function LockScreen() {
     setError('');
   };
 
+  const handleBiometricUnlock = () => {
+    authenticateWithBiometrics().catch(() => setError('Biometric unlock is unavailable.'));
+  };
+
   const title =
     mode === 'unlock' ? 'Enter PIN' :
     mode === 'create' ? 'Create PIN' :
@@ -168,6 +172,12 @@ export default function LockScreen() {
           <Delete color={keypadDisabled ? colors.textMuted : colors.text} size={26} strokeWidth={2} />
         </TouchableOpacity>
       </View>
+      {mode === 'unlock' && biometricEnabled && Platform.OS !== 'web' ? (
+        <TouchableOpacity style={styles.biometricBtn} onPress={handleBiometricUnlock} activeOpacity={0.7}>
+          <Fingerprint size={22} color={colors.primary} strokeWidth={2} />
+          <Text style={styles.biometricText}>Unlock with biometrics</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -236,8 +246,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   key: {
-    width: 72,
-    height: 72,
+    width: '28%',
+    maxWidth: 76,
+    aspectRatio: 1,
     borderRadius: radius.full,
     backgroundColor: colors.surface,
     alignItems: 'center',
@@ -252,8 +263,21 @@ const styles = StyleSheet.create({
     ...typography.h1,
     color: colors.text,
   },
+  biometricBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    padding: spacing.sm,
+  },
+  biometricText: {
+    ...typography.bodySm,
+    color: colors.primary,
+    fontFamily: 'Inter-Bold',
+  },
   keyPlaceholder: {
-    width: 72,
-    height: 72,
+    width: '28%',
+    maxWidth: 76,
+    aspectRatio: 1,
   },
 });

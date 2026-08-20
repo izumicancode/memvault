@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, useWindowDimensions } from 'react-native';
 import { Mic, Video, Square, AudioLines, Camera, Upload, Plus } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
 import { saveMemo, MAX_FILE_SIZE_BYTES } from '@/lib/storage';
@@ -14,6 +14,8 @@ export default function RecordScreen() {
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState('');
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const { width } = useWindowDimensions();
+  const horizontalPadding = Math.min(spacing.lg, Math.max(spacing.md, width * 0.06));
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -273,7 +275,7 @@ export default function RecordScreen() {
   const isWeb = Platform.OS === 'web';
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View>

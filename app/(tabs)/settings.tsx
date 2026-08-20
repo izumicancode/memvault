@@ -1,19 +1,30 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, Modal } from 'react-native';
-import { Lock, Unlock, Shield, Info, ChevronRight, Trash2 } from 'lucide-react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Switch, Modal, Platform, useWindowDimensions } from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { Lock, Unlock, Shield, Info, Fingerprint, Trash2 } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
-import { hasPin, setPin, clearPin } from '@/lib/storage';
+import { hasPin, setPin, clearPin, setBiometricEnabled } from '@/lib/storage';
 // setPin is now async (hashes the PIN before storage)
 import { useLock } from '@/lib/lock-context';
 
 export default function SettingsScreen() {
-  const { lock, refreshPinStatus, hasPin: pinExists } = useLock();
+  const { lock, refreshPinStatus, hasPin: pinExists, biometricEnabled } = useLock();
   const [lockEnabled, setLockEnabled] = useState(hasPin());
   const [showPinSetup, setShowPinSetup] = useState(false);
   const [pinStep, setPinStep] = useState<'create' | 'confirm'>('create');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const { width } = useWindowDimensions();
+  const horizontalPadding = Math.min(spacing.lg, Math.max(spacing.md, width * 0.06));
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync()])
+      .then(([hardware, enrolled]) => setBiometricAvailable(hardware && enrolled))
+      .catch(() => setBiometricAvailable(false));
+  }, []);
 
   const toggleLock = (value: boolean) => {
     if (value) {
@@ -83,7 +94,7 @@ export default function SettingsScreen() {
   const currentPin = pinStep === 'create' ? newPin : confirmPin;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
       </View>
@@ -113,6 +124,28 @@ export default function SettingsScreen() {
               <Lock size={16} color={colors.primary} strokeWidth={2} />
               <Text style={styles.lockNowText}>Lock Now</Text>
             </TouchableOpacity>
+          )}
+          {lockEnabled && biometricAvailable && (
+            <View style={styles.row}>
+              <View style={styles.rowLeft}>
+                <View style={[styles.rowIcon, { backgroundColor: 'rgba(139,92,246,0.12)' }]}>
+                  <Fingerprint size={20} color="#A78BFA" strokeWidth={2} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>Biometric Unlock</Text>
+                  <Text style={styles.rowDesc}>Use fingerprint or face recognition</Text>
+                </View>
+              </View>
+              <Switch
+                value={biometricEnabled}
+                onValueChange={(value) => {
+                  setBiometricEnabled(value);
+                  refreshPinStatus();
+                }}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor={colors.text}
+              />
+            </View>
           )}
         </View>
       </View>
@@ -232,6 +265,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     flex: 1,
   },
+  rowText: {
+    flex: 1,
+  },
   rowIcon: {
     width: 40,
     height: 40,
@@ -323,8 +359,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   pinKey: {
-    width: 64,
-    height: 64,
+    width: '28%',
+    maxWidth: 68,
+    aspectRatio: 1,
     borderRadius: radius.full,
     backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
@@ -337,8 +374,9 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   pinKeyPlaceholder: {
-    width: 64,
-    height: 64,
+    width: '28%',
+    maxWidth: 68,
+    aspectRatio: 1,
   },
   pinCancel: {
     marginTop: spacing.lg,
