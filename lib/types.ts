@@ -9,6 +9,10 @@ export interface Memo {
   durationMs: number;
   createdAt: number;
   size: number;
+  tags?: string[];
+  isFavorite?: boolean;
+  isArchived?: boolean;
+  deletedAt?: number;
 }
 
 export interface MemoMeta {
@@ -19,4 +23,8 @@ export interface MemoMeta {
   durationMs: number;
   createdAt: number;
   size: number;
+  tags?: string[];
+  isFavorite?: boolean;
+  isArchived?: boolean;
+  deletedAt?: number;
 }

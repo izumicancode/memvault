@@ -1,31 +1,42 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, Modal, Platform, useWindowDimensions, TextInput } from 'react-native';
 import { Audio } from 'expo-av';
-import { Mic, Video, Trash2, Play, Pause, X, FolderOpen, Search, MoreVertical, Pencil } from 'lucide-react-native';
+import { Mic, Video, Trash2, Play, Pause, X, FolderOpen, Search, MoreVertical, Pencil, Star, Archive, RotateCcw } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
-import { listMemos, deleteMemo, getMemo, getMemoPlaybackUri, renameMemo } from '@/lib/storage';
+import { listMemos, listTrash, deleteMemo, permanentlyDeleteMemo, restoreMemo, getMemo, getMemoPlaybackUri, renameMemo, updateMemoMetadata } from '@/lib/storage';
 import { formatDuration, formatDate, formatSize } from '@/lib/format';
 import type { MemoMeta } from '@/lib/types';
 
 export default function MemosScreen() {
   const [memos, setMemos] = useState<MemoMeta[]>([]);
+  const [trash, setTrash] = useState<MemoMeta[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [playingType, setPlayingType] = useState<'audio' | 'video'>('audio');
   const [isPaused, setIsPaused] = useState(false);
+  const [playbackError, setPlaybackError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'audio' | 'video'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'audio' | 'video' | 'favorites' | 'archived'>('all');
   const [sortMode, setSortMode] = useState<'newest' | 'oldest' | 'largest'>('newest');
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
+  const [tagText, setTagText] = useState('');
+  const [showTrash, setShowTrash] = useState(false);
   const nativeSoundRef = useRef<Audio.Sound | null>(null);
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.min(spacing.lg, Math.max(spacing.md, width * 0.06));
-  const filteredMemos = memos.filter((memo) => {
-    const matchesQuery = memo.title.toLowerCase().includes(query.trim().toLowerCase());
-    return matchesQuery && (filterType === 'all' || memo.type === filterType);
+  const visibleMemos = showTrash ? trash : memos;
+  const filteredMemos = visibleMemos.filter((memo) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const matchesQuery = memo.title.toLowerCase().includes(normalizedQuery)
+      || (memo.tags ?? []).some((tag) => tag.toLowerCase().includes(normalizedQuery));
+    const matchesFilter = filterType === 'all'
+      || (filterType === 'favorites' && memo.isFavorite)
+      || (filterType === 'archived' && memo.isArchived)
+      || memo.type === filterType;
+    return matchesQuery && matchesFilter && (showTrash || filterType === 'archived' || !memo.isArchived);
   }).sort((a, b) => {
     if (sortMode === 'oldest') return a.createdAt - b.createdAt;
     if (sortMode === 'largest') return b.size - a.size;
@@ -37,9 +48,10 @@ export default function MemosScreen() {
   const load = useCallback(async () => {
     try {
       console.log('[memVault] Loading memos...');
-      const list = await listMemos();
+      const [list, trashList] = await Promise.all([listMemos(), listTrash()]);
       console.log('[memVault] Memos loaded:', list.length);
       setMemos(list);
+      setTrash(trashList);
     } catch (error) {
       console.error('[memVault] Error loading memos:', error);
     }
@@ -56,6 +68,7 @@ export default function MemosScreen() {
   };
 
   const playMemo = async (memo: MemoMeta) => {
+    setPlaybackError('');
     // Stop current playback
     if (playingUrl) {
       URL.revokeObjectURL(playingUrl);
@@ -73,6 +86,13 @@ export default function MemosScreen() {
 
     if (Platform.OS !== 'web') {
       try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
         const uri = await getMemoPlaybackUri(memo.id);
         if (!uri) return;
         const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
@@ -83,8 +103,10 @@ export default function MemosScreen() {
         sound.setOnPlaybackStatusUpdate((status) => {
           if (status.isLoaded && status.didJustFinish) closePlayer();
         });
-      } catch {
+      } catch (error) {
+        console.error('[memVault] Playback failed:', error);
         setPlayingId(null);
+        setPlaybackError('This recording could not be played. Try recording it again.');
       }
       return;
     }
@@ -108,8 +130,9 @@ export default function MemosScreen() {
           videoRef.current.play().catch(() => {});
         }
       }, 100);
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error('[memVault] Playback failed:', error);
+      setPlaybackError('This recording could not be played.');
     }
   };
 
@@ -150,12 +173,14 @@ export default function MemosScreen() {
     setPlayingUrl(null);
     setPlayingId(null);
     setIsPaused(false);
+    setPlaybackError('');
   };
 
   const confirmDelete = async () => {
     if (!deleteId) return;
     if (playingId === deleteId) closePlayer();
-    await deleteMemo(deleteId);
+    if (showTrash) await permanentlyDeleteMemo(deleteId);
+    else await deleteMemo(deleteId);
     setDeleteId(null);
     await load();
   };
@@ -163,13 +188,26 @@ export default function MemosScreen() {
   const openRename = (memo: MemoMeta) => {
     setRenameId(memo.id);
     setRenameTitle(memo.title);
+    setTagText((memo.tags ?? []).join(', '));
   };
 
   const saveRename = async () => {
     if (!renameId || !renameTitle.trim()) return;
     await renameMemo(renameId, renameTitle);
+    await updateMemoMetadata(renameId, {
+      tags: tagText.split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 10),
+    });
     setRenameId(null);
     setRenameTitle('');
+    setTagText('');
+    await load();
+  };
+
+  const toggleMetadata = async (key: 'isFavorite' | 'isArchived') => {
+    if (!renameId) return;
+    const memo = visibleMemos.find((item) => item.id === renameId);
+    if (!memo) return;
+    await updateMemoMetadata(renameId, { [key]: !memo[key] });
     await load();
   };
 
@@ -192,6 +230,7 @@ export default function MemosScreen() {
           <Text style={styles.memoMeta}>
             {formatDuration(item.durationMs)} · {formatSize(item.size)} · {formatDate(item.createdAt)}
           </Text>
+          {(item.tags ?? []).length > 0 && <Text style={styles.memoTags} numberOfLines={1}>{(item.tags ?? []).map((tag) => `#${tag}`).join(' ')}</Text>}
         </View>
         {playingId === item.id && (
           <View style={styles.playingBadge}>
@@ -199,7 +238,7 @@ export default function MemosScreen() {
           </View>
         )}
       </TouchableOpacity>
-      <TouchableOpacity style={styles.deleteBtn} onPress={() => openRename(item)} activeOpacity={0.6}>
+      <TouchableOpacity style={styles.deleteBtn} onPress={() => openRename(item)} accessibilityLabel={`Actions for ${item.title}`} activeOpacity={0.6}>
         <MoreVertical size={18} color={colors.textMuted} strokeWidth={2} />
       </TouchableOpacity>
     </View>
@@ -209,7 +248,12 @@ export default function MemosScreen() {
     <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Memos</Text>
-        <Text style={styles.subtitle}>{memos.length} saved {memos.length === 1 ? 'memo' : 'memos'}</Text>
+        <View style={styles.headerActions}>
+          <Text style={styles.subtitle}>{showTrash ? `${trash.length} in trash` : `${memos.length} saved ${memos.length === 1 ? 'memo' : 'memos'}`}</Text>
+          <TouchableOpacity style={[styles.trashToggle, showTrash && styles.trashToggleActive]} onPress={() => setShowTrash((visible) => !visible)} accessibilityLabel={showTrash ? 'Show active memos' : 'Show trash'}>
+            <Trash2 size={17} color={showTrash ? colors.text : colors.textMuted} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchBox}>
@@ -224,7 +268,7 @@ export default function MemosScreen() {
         />
       </View>
       <View style={styles.filters}>
-        {(['all', 'audio', 'video'] as const).map((type) => (
+        {(['all', 'audio', 'video', 'favorites', 'archived'] as const).map((type) => (
           <TouchableOpacity
             key={type}
             style={[styles.filterBtn, filterType === type && styles.filterBtnActive]}
@@ -232,7 +276,7 @@ export default function MemosScreen() {
             activeOpacity={0.7}
           >
             <Text style={[styles.filterText, filterType === type && styles.filterTextActive]}>
-              {type === 'all' ? 'All' : type === 'audio' ? 'Voice' : 'Video'}
+              {type === 'all' ? 'All' : type === 'audio' ? 'Voice' : type === 'video' ? 'Video' : type === 'favorites' ? 'Starred' : 'Archived'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -240,19 +284,20 @@ export default function MemosScreen() {
           <Text style={styles.sortText}>{sortMode === 'newest' ? 'Recent' : sortMode === 'oldest' ? 'Oldest' : 'Largest'}</Text>
         </TouchableOpacity>
       </View>
+      {playbackError ? <Text style={styles.playbackError}>{playbackError}</Text> : null}
 
-      {memos.length > 0 && (
+      {visibleMemos.length > 0 && (
         <View style={styles.summaryRow}>
           <Text style={styles.summaryText}>{filteredMemos.length} shown</Text>
-          <Text style={styles.summaryText}>{formatSize(memos.reduce((total, memo) => total + memo.size, 0))} stored</Text>
+          <Text style={styles.summaryText}>{formatSize(visibleMemos.reduce((total, memo) => total + memo.size, 0))} stored</Text>
         </View>
       )}
 
       {filteredMemos.length === 0 ? (
         <View style={styles.empty}>
           <FolderOpen size={56} color={colors.textMuted} strokeWidth={1.5} />
-          <Text style={styles.emptyTitle}>{memos.length === 0 ? 'No memos yet' : 'No matches'}</Text>
-          <Text style={styles.emptyText}>{memos.length === 0 ? 'Record a voice or video memo to see it here' : 'Try another search or filter'}</Text>
+          <Text style={styles.emptyTitle}>{visibleMemos.length === 0 ? (showTrash ? 'Trash is empty' : 'No memos yet') : 'No matches'}</Text>
+          <Text style={styles.emptyText}>{visibleMemos.length === 0 ? (showTrash ? 'Deleted memos will stay here until permanently removed' : 'Record a voice or video memo to see it here') : 'Try another search or filter'}</Text>
         </View>
       ) : (
         <FlatList
@@ -346,8 +391,8 @@ export default function MemosScreen() {
             <View style={styles.deleteIconWrap}>
               <Trash2 size={28} color={colors.error} strokeWidth={2} />
             </View>
-            <Text style={styles.deleteTitle}>Delete memo?</Text>
-            <Text style={styles.deleteText}>This memo will be permanently deleted.</Text>
+            <Text style={styles.deleteTitle}>{showTrash ? 'Delete permanently?' : 'Move to trash?'}</Text>
+            <Text style={styles.deleteText}>{showTrash ? 'This memo cannot be restored afterward.' : 'You can restore it from Trash later.'}</Text>
             <View style={styles.deleteActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setDeleteId(null)}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -373,6 +418,23 @@ export default function MemosScreen() {
               style={styles.renameInput}
               autoFocus
             />
+            <TextInput
+              value={tagText}
+              onChangeText={setTagText}
+              placeholder="Tags, separated by commas"
+              placeholderTextColor={colors.textMuted}
+              style={styles.renameInput}
+            />
+            {!showTrash && <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.actionButton} onPress={() => toggleMetadata('isFavorite')}>
+                <Star size={17} color={visibleMemos.find((memo) => memo.id === renameId)?.isFavorite ? colors.warning : colors.textMuted} fill={visibleMemos.find((memo) => memo.id === renameId)?.isFavorite ? colors.warning : 'transparent'} />
+                <Text style={styles.actionText}>Favorite</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton} onPress={() => toggleMetadata('isArchived')}>
+                <Archive size={17} color={colors.textMuted} />
+                <Text style={styles.actionText}>Archive</Text>
+              </TouchableOpacity>
+            </View>}
             <View style={styles.deleteActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setRenameId(null)}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -382,9 +444,13 @@ export default function MemosScreen() {
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.removeAction} onPress={() => { setRenameId(null); setDeleteId(renameId); }}>
-              <Trash2 size={16} color={colors.error} />
-              <Text style={styles.removeActionText}>Delete memo</Text>
+              {showTrash ? <Trash2 size={16} color={colors.error} /> : <Trash2 size={16} color={colors.error} />}
+              <Text style={styles.removeActionText}>{showTrash ? 'Delete permanently' : 'Move to trash'}</Text>
             </TouchableOpacity>
+            {showTrash && <TouchableOpacity style={styles.removeAction} onPress={async () => { if (!renameId) return; await restoreMemo(renameId); setRenameId(null); await load(); }}>
+              <RotateCcw size={16} color={colors.primary} />
+              <Text style={[styles.removeActionText, { color: colors.primary }]}>Restore memo</Text>
+            </TouchableOpacity>}
           </View>
         </View>
       </Modal>
@@ -410,6 +476,25 @@ const styles = StyleSheet.create({
     ...typography.bodySm,
     color: colors.textDim,
     marginTop: spacing.xs,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  trashToggle: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  trashToggleActive: {
+    backgroundColor: colors.error,
+    borderColor: colors.error,
   },
   searchBox: {
     flexDirection: 'row',
@@ -474,6 +559,11 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
   },
+  playbackError: {
+    ...typography.bodySm,
+    color: colors.error,
+    marginBottom: spacing.sm,
+  },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -500,6 +590,27 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: spacing.md,
     marginTop: spacing.md,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    width: '100%',
+    marginTop: spacing.md,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  actionText: {
+    ...typography.caption,
+    color: colors.textDim,
+    fontFamily: 'Inter-Bold',
   },
   removeAction: {
     flexDirection: 'row',
@@ -549,6 +660,11 @@ const styles = StyleSheet.create({
   memoMeta: {
     ...typography.caption,
     color: colors.textMuted,
+  },
+  memoTags: {
+    ...typography.caption,
+    color: colors.primary,
+    marginTop: 2,
   },
   playingBadge: {
     width: 28,

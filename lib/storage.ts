@@ -118,6 +118,12 @@ export async function saveMemo(memo: Memo): Promise<void> {
 }
 
 export async function deleteMemo(id: string): Promise<void> {
+  const memo = await getMemo(id);
+  if (!memo) return;
+  await saveMemo({ ...memo, deletedAt: Date.now() });
+}
+
+export async function permanentlyDeleteMemo(id: string): Promise<void> {
   if (isNative()) {
     await saveNativeMemos((await getNativeMemos()).filter((memo) => memo.id !== id));
     return;
@@ -148,6 +154,22 @@ export async function renameMemo(id: string, title: string): Promise<void> {
   const memo = await getMemo(id);
   if (!memo) throw new Error('Memo not found');
   await saveMemo({ ...memo, title: title.trim() || memo.title });
+}
+
+export async function updateMemoMetadata(
+  id: string,
+  metadata: Partial<Pick<Memo, 'tags' | 'isFavorite' | 'isArchived'>>,
+): Promise<void> {
+  const memo = await getMemo(id);
+  if (!memo) throw new Error('Memo not found');
+  await saveMemo({ ...memo, ...metadata });
+}
+
+export async function restoreMemo(id: string): Promise<void> {
+  const memo = await getMemo(id);
+  if (!memo) return;
+  const { deletedAt: _deletedAt, ...restoredMemo } = memo;
+  await saveMemo(restoredMemo);
 }
 
 export async function getMemo(id: string): Promise<Memo | undefined> {
@@ -189,7 +211,17 @@ export async function getMemoPlaybackUri(id: string): Promise<string | undefined
   const memo = (await getNativeMemos()).find((item) => item.id === id);
   if (!memo) return undefined;
   const encoded = memo.blobData.split(',')[1] ?? '';
-  const extension = memo.mimeType.includes('mpeg') || memo.mimeType.includes('mp4') ? 'm4a' : 'audio';
+  const extensionByMime: Record<string, string> = {
+    'audio/mp4': 'm4a',
+    'audio/mpeg': 'mp3',
+    'audio/aac': 'aac',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+    'audio/webm': 'webm',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+  };
+  const extension = extensionByMime[memo.mimeType] ?? (memo.type === 'video' ? 'mp4' : 'm4a');
   const file = new File(Paths.cache, `memo-vault-${id}.${extension}`);
   file.write(encoded, { encoding: 'base64' });
   return file.uri;
@@ -211,6 +243,7 @@ export async function listMemos(): Promise<MemoMeta[]> {
         const all = (req.result as Memo[]) ?? [];
         console.log('[memVault] Loaded memos count:', all.length);
         const metas: MemoMeta[] = all
+          .filter((m) => !m.deletedAt)
           .map((m) => ({
             id: m.id,
             type: m.type,
@@ -219,6 +252,9 @@ export async function listMemos(): Promise<MemoMeta[]> {
             durationMs: m.durationMs,
             createdAt: m.createdAt,
             size: m.size,
+            tags: m.tags,
+            isFavorite: m.isFavorite,
+            isArchived: m.isArchived,
           }))
           .sort((a, b) => b.createdAt - a.createdAt);
         resolve(metas);
@@ -238,6 +274,38 @@ export async function listMemos(): Promise<MemoMeta[]> {
       db.close();
       reject(error);
     }
+  });
+}
+
+export async function listTrash(): Promise<MemoMeta[]> {
+  if (isNative()) {
+    return (await getNativeMemos())
+      .filter((memo) => !!memo.deletedAt)
+      .map(({ blobData: _blobData, ...memo }) => memo)
+      .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+  }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => {
+      resolve((req.result as Memo[]).filter((memo) => !!memo.deletedAt).map((memo) => ({
+        id: memo.id,
+        type: memo.type,
+        title: memo.title,
+        mimeType: memo.mimeType,
+        durationMs: memo.durationMs,
+        createdAt: memo.createdAt,
+        size: memo.size,
+        tags: memo.tags,
+        isFavorite: memo.isFavorite,
+        isArchived: memo.isArchived,
+        deletedAt: memo.deletedAt,
+      })));
+    };
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
