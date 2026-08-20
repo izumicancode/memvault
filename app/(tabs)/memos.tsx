@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, Modal, Platform, useWindowDimensions } from 'react-native';
-import { Mic, Video, Trash2, Play, Pause, X, FolderOpen } from 'lucide-react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, Modal, Platform, useWindowDimensions, TextInput } from 'react-native';
+import { Mic, Video, Trash2, Play, Pause, X, FolderOpen, Search } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
 import { listMemos, deleteMemo, getMemo } from '@/lib/storage';
 import { formatDuration, formatDate, formatSize } from '@/lib/format';
@@ -14,8 +14,14 @@ export default function MemosScreen() {
   const [playingType, setPlayingType] = useState<'audio' | 'video'>('audio');
   const [isPaused, setIsPaused] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'audio' | 'video'>('all');
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.min(spacing.lg, Math.max(spacing.md, width * 0.06));
+  const filteredMemos = memos.filter((memo) => {
+    const matchesQuery = memo.title.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesQuery && (filterType === 'all' || memo.type === filterType);
+  });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -152,15 +158,41 @@ export default function MemosScreen() {
         <Text style={styles.subtitle}>{memos.length} saved {memos.length === 1 ? 'memo' : 'memos'}</Text>
       </View>
 
-      {memos.length === 0 ? (
+      <View style={styles.searchBox}>
+        <Search size={18} color={colors.textMuted} strokeWidth={2} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search memos"
+          placeholderTextColor={colors.textMuted}
+          style={styles.searchInput}
+          returnKeyType="search"
+        />
+      </View>
+      <View style={styles.filters}>
+        {(['all', 'audio', 'video'] as const).map((type) => (
+          <TouchableOpacity
+            key={type}
+            style={[styles.filterBtn, filterType === type && styles.filterBtnActive]}
+            onPress={() => setFilterType(type)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.filterText, filterType === type && styles.filterTextActive]}>
+              {type === 'all' ? 'All' : type === 'audio' ? 'Voice' : 'Video'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {filteredMemos.length === 0 ? (
         <View style={styles.empty}>
           <FolderOpen size={56} color={colors.textMuted} strokeWidth={1.5} />
-          <Text style={styles.emptyTitle}>No memos yet</Text>
-          <Text style={styles.emptyText}>Record a voice or video memo to see it here</Text>
+          <Text style={styles.emptyTitle}>{memos.length === 0 ? 'No memos yet' : 'No matches'}</Text>
+          <Text style={styles.emptyText}>{memos.length === 0 ? 'Record a voice or video memo to see it here' : 'Try another search or filter'}</Text>
         </View>
       ) : (
         <FlatList
-          data={memos}
+          data={filteredMemos}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={{ paddingBottom: spacing.xl }}
@@ -263,6 +295,48 @@ const styles = StyleSheet.create({
     ...typography.bodySm,
     color: colors.textDim,
     marginTop: spacing.xs,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  searchInput: {
+    ...typography.bodySm,
+    color: colors.text,
+    flex: 1,
+    minHeight: 44,
+  },
+  filters: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  filterBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterText: {
+    ...typography.caption,
+    color: colors.textDim,
+    fontFamily: 'Inter-Bold',
+  },
+  filterTextActive: {
+    color: colors.text,
   },
   empty: {
     flex: 1,
