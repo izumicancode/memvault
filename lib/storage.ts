@@ -1,11 +1,13 @@
 import type { Memo, MemoMeta } from './types';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { AccentTheme } from './theme';
 
 const DB_NAME = 'memo-vault';
 const DB_VERSION = 1;
 const STORE = 'memos';
 const NATIVE_MEMOS_KEY = 'memo-vault-native-memos';
+const ACCENT_THEME_KEY = 'memo-vault-accent-theme';
 const LOCK_KEY = 'memo-vault-pin';
 const BIOMETRIC_KEY = 'memo-vault-biometric';
 const ATTEMPTS_KEY = 'memo-vault-pin-attempts';
@@ -41,6 +43,18 @@ async function getNativeMemos(): Promise<NativeMemo[]> {
 
 async function saveNativeMemos(memos: NativeMemo[]): Promise<void> {
   await AsyncStorage.setItem(NATIVE_MEMOS_KEY, JSON.stringify(memos));
+}
+
+export async function getAccentTheme(): Promise<AccentTheme> {
+  const value = isNative()
+    ? await AsyncStorage.getItem(ACCENT_THEME_KEY)
+    : localStorage.getItem(ACCENT_THEME_KEY);
+  return value === 'violet' || value === 'amber' || value === 'rose' ? value : 'blue';
+}
+
+export async function setAccentTheme(theme: AccentTheme): Promise<void> {
+  if (isNative()) await AsyncStorage.setItem(ACCENT_THEME_KEY, theme);
+  else localStorage.setItem(ACCENT_THEME_KEY, theme);
 }
 
 function openDB(): Promise<IDBDatabase> {

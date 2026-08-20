@@ -6,6 +6,7 @@ import { Inter_400Regular, Inter_700Bold } from '@expo-google-fonts/inter';
 import { SplashScreen } from 'expo-router';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { LockProvider, useLock } from '@/lib/lock-context';
+import { ThemeProvider } from '@/lib/theme-context';
 import LockScreen from '@/components/LockScreen';
 
 SplashScreen.preventAutoHideAsync();
@@ -48,7 +49,9 @@ export default function RootLayout() {
 
   return (
     <LockProvider>
-      <AppContent />
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
     </LockProvider>
   );
 }

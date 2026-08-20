@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { hasPin, isBiometricEnabled } from './storage';
 
@@ -47,6 +47,13 @@ export function LockProvider({ children }: { children: ReactNode }) {
     if (hasPin() && isBiometricEnabled()) {
       authenticateWithBiometrics().catch(() => {});
     }
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' && hasPin()) setIsLocked(true);
+    });
+    return () => subscription.remove();
   }, []);
 
   const unlock = () => setIsLocked(false);

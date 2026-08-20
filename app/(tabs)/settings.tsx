@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Switch, Modal, Platform, useWindowDimensions } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { Lock, Unlock, Shield, Info, Fingerprint, Trash2 } from 'lucide-react-native';
-import { colors, spacing, radius, typography } from '@/lib/theme';
+import { Lock, Unlock, Shield, Info, Fingerprint, Trash2, Palette } from 'lucide-react-native';
+import { colors, spacing, radius, typography, accentThemes, AccentTheme } from '@/lib/theme';
 import { hasPin, setPin, clearPin, setBiometricEnabled } from '@/lib/storage';
 // setPin is now async (hashes the PIN before storage)
 import { useLock } from '@/lib/lock-context';
+import { useTheme } from '@/lib/theme-context';
 
 export default function SettingsScreen() {
   const { lock, refreshPinStatus, hasPin: pinExists, biometricEnabled } = useLock();
+  const { accentTheme, selectAccentTheme } = useTheme();
   const [lockEnabled, setLockEnabled] = useState(hasPin());
   const [showPinSetup, setShowPinSetup] = useState(false);
   const [pinStep, setPinStep] = useState<'create' | 'confirm'>('create');
@@ -125,7 +127,7 @@ export default function SettingsScreen() {
               <Text style={styles.lockNowText}>Lock Now</Text>
             </TouchableOpacity>
           )}
-          {lockEnabled && biometricAvailable && (
+          {lockEnabled && Platform.OS !== 'web' && (
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <View style={[styles.rowIcon, { backgroundColor: 'rgba(139,92,246,0.12)' }]}>
@@ -133,11 +135,14 @@ export default function SettingsScreen() {
                 </View>
                 <View style={styles.rowText}>
                   <Text style={styles.rowTitle}>Biometric Unlock</Text>
-                  <Text style={styles.rowDesc}>Use fingerprint or face recognition</Text>
+                  <Text style={styles.rowDesc}>
+                    {biometricAvailable ? 'Use fingerprint or face recognition' : 'Set up fingerprint or face unlock in phone settings'}
+                  </Text>
                 </View>
               </View>
               <Switch
                 value={biometricEnabled}
+                disabled={!biometricAvailable}
                 onValueChange={(value) => {
                   setBiometricEnabled(value);
                   refreshPinStatus();
@@ -147,6 +152,39 @@ export default function SettingsScreen() {
               />
             </View>
           )}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Appearance</Text>
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <View style={[styles.rowIcon, { backgroundColor: 'rgba(245,158,11,0.12)' }]}>
+                <Palette size={20} color={colors.warning} strokeWidth={2} />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Accent color</Text>
+                <Text style={styles.rowDesc}>Personalize buttons and highlights</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.themeChoices}>
+            {(Object.keys(accentThemes) as AccentTheme[]).map((theme) => (
+              <TouchableOpacity
+                key={theme}
+                accessibilityLabel={`${theme} accent theme`}
+                style={[styles.themeChoice, accentTheme === theme && styles.themeChoiceSelected]}
+                onPress={() => selectAccentTheme(theme)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.themeSwatch, { backgroundColor: accentThemes[theme].primary }]} />
+                <Text style={[styles.themeLabel, accentTheme === theme && styles.themeLabelSelected]}>
+                  {theme[0].toUpperCase() + theme.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </View>
 
@@ -267,6 +305,40 @@ const styles = StyleSheet.create({
   },
   rowText: {
     flex: 1,
+  },
+  themeChoices: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  themeChoice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  themeChoiceSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.surfaceAlt,
+  },
+  themeSwatch: {
+    width: 14,
+    height: 14,
+    borderRadius: radius.full,
+  },
+  themeLabel: {
+    ...typography.caption,
+    color: colors.textDim,
+  },
+  themeLabelSelected: {
+    color: colors.text,
+    fontFamily: 'Inter-Bold',
   },
   rowIcon: {
     width: 40,

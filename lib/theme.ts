@@ -15,6 +15,22 @@ export const colors = {
   overlay: 'rgba(0,0,0,0.6)',
 };
 
+export const accentThemes = {
+  blue: { primary: '#3B82F6', primaryDim: '#1D4ED8', accent: '#10B981' },
+  violet: { primary: '#8B5CF6', primaryDim: '#6D28D9', accent: '#22D3EE' },
+  amber: { primary: '#F59E0B', primaryDim: '#D97706', accent: '#14B8A6' },
+  rose: { primary: '#F43F5E', primaryDim: '#BE123C', accent: '#FB923C' },
+} as const;
+
+export type AccentTheme = keyof typeof accentThemes;
+
+export function applyAccentTheme(theme: AccentTheme): void {
+  const palette = accentThemes[theme];
+  colors.primary = palette.primary;
+  colors.primaryDim = palette.primaryDim;
+  colors.accent = palette.accent;
+}
+
 export const spacing = {
   xs: 4,
   sm: 8,
