@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { SplashScreen, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { Inter_400Regular, Inter_700Bold } from '@expo-google-fonts/inter';
-import { SplashScreen } from 'expo-router';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { LockProvider, useLock } from '@/lib/lock-context';
 import { ThemeProvider } from '@/lib/theme-context';

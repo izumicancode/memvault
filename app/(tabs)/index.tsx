@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
 import { Audio } from 'expo-av';
-import { Mic, Video, Square, AudioLines, Camera, Upload, Plus } from 'lucide-react-native';
+import { Mic, Video, Square, AudioLines, Camera, Plus } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
 import { saveMemo, MAX_FILE_SIZE_BYTES } from '@/lib/storage';
 import { formatDuration } from '@/lib/format';

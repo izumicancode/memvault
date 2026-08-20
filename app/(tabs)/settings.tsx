@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, Modal, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Switch, Modal, Platform, useWindowDimensions, AppState, ScrollView } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Lock, Unlock, Shield, Info, Fingerprint, Trash2, Palette } from 'lucide-react-native';
 import { colors, spacing, radius, typography, accentThemes, AccentTheme } from '@/lib/theme';
@@ -23,10 +23,28 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync()])
-      .then(([hardware, enrolled]) => setBiometricAvailable(hardware && enrolled))
-      .catch(() => setBiometricAvailable(false));
+    const checkBiometricAvailability = async () => {
+      try {
+        const [hardware, enrolled] = await Promise.all([
+          LocalAuthentication.hasHardwareAsync(),
+          LocalAuthentication.isEnrolledAsync(),
+        ]);
+        setBiometricAvailable(hardware && enrolled);
+      } catch {
+        setBiometricAvailable(false);
+      }
+    };
+
+    checkBiometricAvailability();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkBiometricAvailability();
+    });
+    return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    setLockEnabled(pinExists);
+  }, [pinExists]);
 
   const toggleLock = (value: boolean) => {
     if (value) {
@@ -96,7 +114,11 @@ export default function SettingsScreen() {
   const currentPin = pinStep === 'create' ? newPin : confirmPin;
 
   return (
-    <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
+      contentInsetAdjustmentBehavior="automatic"
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
       </View>
@@ -117,6 +139,9 @@ export default function SettingsScreen() {
             <Switch
               value={lockEnabled}
               onValueChange={toggleLock}
+              accessibilityRole="switch"
+              accessibilityLabel="App Lock"
+              accessibilityState={{ checked: lockEnabled }}
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor={colors.text}
             />
@@ -147,9 +172,29 @@ export default function SettingsScreen() {
               <Switch
                 value={biometricEnabled}
                 disabled={!biometricAvailable || !lockEnabled}
-                onValueChange={(value) => {
-                  setBiometricEnabled(value);
-                  refreshPinStatus();
+                accessibilityRole="switch"
+                accessibilityLabel="Fingerprint or Face Unlock"
+                accessibilityState={{ checked: biometricEnabled, disabled: !biometricAvailable || !lockEnabled }}
+                onValueChange={async (value) => {
+                  if (!value) {
+                    setBiometricEnabled(false);
+                    refreshPinStatus();
+                    return;
+                  }
+                  try {
+                    const result = await LocalAuthentication.authenticateAsync({
+                      promptMessage: 'Confirm fingerprint unlock for Memo Vault',
+                      cancelLabel: 'Cancel',
+                      disableDeviceFallback: true,
+                    });
+                    if (result.success) {
+                      setBiometricEnabled(true);
+                      refreshPinStatus();
+                    }
+                  } catch {
+                    setBiometricEnabled(false);
+                    refreshPinStatus();
+                  }
                 }}
                 trackColor={{ false: colors.border, true: colors.primary }}
                 thumbColor={colors.text}
@@ -260,7 +305,7 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -268,8 +313,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
-    paddingHorizontal: spacing.lg,
+  },
+  content: {
     paddingTop: spacing.xxl,
+    paddingBottom: spacing.xxl,
   },
   header: {
     marginBottom: spacing.xl,

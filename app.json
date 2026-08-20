@@ -19,6 +19,12 @@
     "plugins": [
       "expo-router",
       "expo-font",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Memo Vault to use Face ID to unlock your private memos."
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {

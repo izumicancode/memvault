@@ -51,7 +51,13 @@ export function LockProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active' && hasPin()) setIsLocked(true);
+      if (state !== 'active' && hasPin()) {
+        setIsLocked(true);
+        return;
+      }
+      if (state === 'active' && hasPin() && isBiometricEnabled()) {
+        authenticateWithBiometrics().catch(() => {});
+      }
     });
     return () => subscription.remove();
   }, []);
