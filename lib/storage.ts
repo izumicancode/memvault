@@ -1,6 +1,7 @@
 import type { Memo, MemoMeta } from './types';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { File, Paths } from 'expo-file-system';
 import type { AccentTheme } from './theme';
 
 const DB_NAME = 'memo-vault';
@@ -181,6 +182,17 @@ export async function getMemo(id: string): Promise<Memo | undefined> {
       reject(error);
     }
   });
+}
+
+export async function getMemoPlaybackUri(id: string): Promise<string | undefined> {
+  if (!isNative()) return undefined;
+  const memo = (await getNativeMemos()).find((item) => item.id === id);
+  if (!memo) return undefined;
+  const encoded = memo.blobData.split(',')[1] ?? '';
+  const extension = memo.mimeType.includes('mpeg') || memo.mimeType.includes('mp4') ? 'm4a' : 'audio';
+  const file = new File(Paths.cache, `memo-vault-${id}.${extension}`);
+  file.write(encoded, { encoding: 'base64' });
+  return file.uri;
 }
 
 export async function listMemos(): Promise<MemoMeta[]> {

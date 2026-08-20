@@ -127,22 +127,26 @@ export default function SettingsScreen() {
               <Text style={styles.lockNowText}>Lock Now</Text>
             </TouchableOpacity>
           )}
-          {lockEnabled && Platform.OS !== 'web' && (
+          {Platform.OS !== 'web' && (
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <View style={[styles.rowIcon, { backgroundColor: 'rgba(139,92,246,0.12)' }]}>
                   <Fingerprint size={20} color="#A78BFA" strokeWidth={2} />
                 </View>
                 <View style={styles.rowText}>
-                  <Text style={styles.rowTitle}>Biometric Unlock</Text>
+                  <Text style={styles.rowTitle}>Fingerprint / Face Unlock</Text>
                   <Text style={styles.rowDesc}>
-                    {biometricAvailable ? 'Use fingerprint or face recognition' : 'Set up fingerprint or face unlock in phone settings'}
+                    {!lockEnabled
+                      ? 'Enable App Lock first to use biometrics'
+                      : biometricAvailable
+                        ? 'Use fingerprint or face recognition'
+                        : 'Set up fingerprint or face unlock in phone settings'}
                   </Text>
                 </View>
               </View>
               <Switch
                 value={biometricEnabled}
-                disabled={!biometricAvailable}
+                disabled={!biometricAvailable || !lockEnabled}
                 onValueChange={(value) => {
                   setBiometricEnabled(value);
                   refreshPinStatus();

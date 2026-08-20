@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, Modal, Platform, useWindowDimensions, TextInput } from 'react-native';
+import { Audio } from 'expo-av';
 import { Mic, Video, Trash2, Play, Pause, X, FolderOpen, Search, MoreVertical, Pencil } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
-import { listMemos, deleteMemo, getMemo, renameMemo } from '@/lib/storage';
+import { listMemos, deleteMemo, getMemo, getMemoPlaybackUri, renameMemo } from '@/lib/storage';
 import { formatDuration, formatDate, formatSize } from '@/lib/format';
 import type { MemoMeta } from '@/lib/types';
 
@@ -19,6 +20,7 @@ export default function MemosScreen() {
   const [sortMode, setSortMode] = useState<'newest' | 'oldest' | 'largest'>('newest');
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
+  const nativeSoundRef = useRef<Audio.Sound | null>(null);
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.min(spacing.lg, Math.max(spacing.md, width * 0.06));
   const filteredMemos = memos.filter((memo) => {
@@ -64,6 +66,28 @@ export default function MemosScreen() {
     if (videoRef.current) {
       videoRef.current.pause();
     }
+    if (nativeSoundRef.current) {
+      await nativeSoundRef.current.unloadAsync();
+      nativeSoundRef.current = null;
+    }
+
+    if (Platform.OS !== 'web') {
+      try {
+        const uri = await getMemoPlaybackUri(memo.id);
+        if (!uri) return;
+        const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+        nativeSoundRef.current = sound;
+        setPlayingType(memo.type);
+        setPlayingId(memo.id);
+        setIsPaused(false);
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) closePlayer();
+        });
+      } catch {
+        setPlayingId(null);
+      }
+      return;
+    }
 
     try {
       const full = await getMemo(memo.id);
@@ -90,6 +114,12 @@ export default function MemosScreen() {
   };
 
   const togglePause = () => {
+    if (Platform.OS !== 'web' && nativeSoundRef.current) {
+      if (isPaused) nativeSoundRef.current.playAsync().catch(() => {});
+      else nativeSoundRef.current.pauseAsync().catch(() => {});
+      setIsPaused((paused) => !paused);
+      return;
+    }
     if (playingType === 'audio' && audioRef.current) {
       if (isPaused) {
         audioRef.current.play().catch(() => {});
@@ -113,6 +143,10 @@ export default function MemosScreen() {
     if (audioRef.current) audioRef.current.pause();
     if (videoRef.current) videoRef.current.pause();
     if (playingUrl) URL.revokeObjectURL(playingUrl);
+    if (nativeSoundRef.current) {
+      nativeSoundRef.current.unloadAsync().catch(() => {});
+      nativeSoundRef.current = null;
+    }
     setPlayingUrl(null);
     setPlayingId(null);
     setIsPaused(false);
@@ -282,6 +316,28 @@ export default function MemosScreen() {
           </Modal>
         </>
       )}
+
+      <Modal visible={Platform.OS !== 'web' && !!playingId} transparent animationType="slide" onRequestClose={closePlayer}>
+        <View style={styles.audioModal}>
+          <View style={styles.audioModalContent}>
+            <View style={styles.audioModalHeader}>
+              <View style={styles.audioIconLarge}>
+                <Mic size={32} color={colors.primary} strokeWidth={2} />
+              </View>
+              <TouchableOpacity style={styles.closeBtn} onPress={closePlayer}>
+                <X size={24} color={colors.text} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.audioModalTitle} numberOfLines={1}>
+              {memos.find((memo) => memo.id === playingId)?.title ?? 'Voice Memo'}
+            </Text>
+            <TouchableOpacity style={styles.audioPlayBtn} onPress={togglePause} activeOpacity={0.7}>
+              {isPaused ? <Play size={28} color={colors.text} strokeWidth={2} /> : <Pause size={28} color={colors.text} strokeWidth={2} />}
+            </TouchableOpacity>
+            <Text style={styles.audioModalDuration}>Playing on this device</Text>
+          </View>
+        </View>
+      </Modal>
 
       {/* Delete confirmation */}
       <Modal visible={!!deleteId} transparent animationType="fade" onRequestClose={() => setDeleteId(null)}>
