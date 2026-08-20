@@ -84,6 +84,12 @@ export async function deleteMemo(id: string): Promise<void> {
   });
 }
 
+export async function renameMemo(id: string, title: string): Promise<void> {
+  const memo = await getMemo(id);
+  if (!memo) throw new Error('Memo not found');
+  await saveMemo({ ...memo, title: title.trim() || memo.title });
+}
+
 export async function getMemo(id: string): Promise<Memo | undefined> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

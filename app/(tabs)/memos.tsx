@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, Modal, Platform, useWindowDimensions, TextInput } from 'react-native';
-import { Mic, Video, Trash2, Play, Pause, X, FolderOpen, Search } from 'lucide-react-native';
+import { Mic, Video, Trash2, Play, Pause, X, FolderOpen, Search, MoreVertical, Pencil } from 'lucide-react-native';
 import { colors, spacing, radius, typography } from '@/lib/theme';
-import { listMemos, deleteMemo, getMemo } from '@/lib/storage';
+import { listMemos, deleteMemo, getMemo, renameMemo } from '@/lib/storage';
 import { formatDuration, formatDate, formatSize } from '@/lib/format';
 import type { MemoMeta } from '@/lib/types';
 
@@ -16,11 +16,18 @@ export default function MemosScreen() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'audio' | 'video'>('all');
+  const [sortMode, setSortMode] = useState<'newest' | 'oldest' | 'largest'>('newest');
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
   const { width } = useWindowDimensions();
   const horizontalPadding = Math.min(spacing.lg, Math.max(spacing.md, width * 0.06));
   const filteredMemos = memos.filter((memo) => {
     const matchesQuery = memo.title.toLowerCase().includes(query.trim().toLowerCase());
     return matchesQuery && (filterType === 'all' || memo.type === filterType);
+  }).sort((a, b) => {
+    if (sortMode === 'oldest') return a.createdAt - b.createdAt;
+    if (sortMode === 'largest') return b.size - a.size;
+    return b.createdAt - a.createdAt;
   });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -119,6 +126,19 @@ export default function MemosScreen() {
     await load();
   };
 
+  const openRename = (memo: MemoMeta) => {
+    setRenameId(memo.id);
+    setRenameTitle(memo.title);
+  };
+
+  const saveRename = async () => {
+    if (!renameId || !renameTitle.trim()) return;
+    await renameMemo(renameId, renameTitle);
+    setRenameId(null);
+    setRenameTitle('');
+    await load();
+  };
+
   const renderItem = ({ item }: { item: MemoMeta }) => (
     <View style={styles.memoCard}>
       <TouchableOpacity
@@ -145,8 +165,8 @@ export default function MemosScreen() {
           </View>
         )}
       </TouchableOpacity>
-      <TouchableOpacity style={styles.deleteBtn} onPress={() => setDeleteId(item.id)} activeOpacity={0.6}>
-        <Trash2 size={18} color={colors.textMuted} strokeWidth={2} />
+      <TouchableOpacity style={styles.deleteBtn} onPress={() => openRename(item)} activeOpacity={0.6}>
+        <MoreVertical size={18} color={colors.textMuted} strokeWidth={2} />
       </TouchableOpacity>
     </View>
   );
@@ -182,7 +202,17 @@ export default function MemosScreen() {
             </Text>
           </TouchableOpacity>
         ))}
+        <TouchableOpacity style={styles.sortBtn} onPress={() => setSortMode((mode) => mode === 'newest' ? 'oldest' : mode === 'oldest' ? 'largest' : 'newest')} activeOpacity={0.7}>
+          <Text style={styles.sortText}>{sortMode === 'newest' ? 'Recent' : sortMode === 'oldest' ? 'Oldest' : 'Largest'}</Text>
+        </TouchableOpacity>
       </View>
+
+      {memos.length > 0 && (
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryText}>{filteredMemos.length} shown</Text>
+          <Text style={styles.summaryText}>{formatSize(memos.reduce((total, memo) => total + memo.size, 0))} stored</Text>
+        </View>
+      )}
 
       {filteredMemos.length === 0 ? (
         <View style={styles.empty}>
@@ -273,6 +303,35 @@ export default function MemosScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={!!renameId} transparent animationType="fade" onRequestClose={() => setRenameId(null)}>
+        <View style={styles.deleteModal}>
+          <View style={styles.deleteModalContent}>
+            <Pencil size={26} color={colors.primary} strokeWidth={2} />
+            <Text style={styles.deleteTitle}>Rename memo</Text>
+            <TextInput
+              value={renameTitle}
+              onChangeText={setRenameTitle}
+              placeholder="Memo title"
+              placeholderTextColor={colors.textMuted}
+              style={styles.renameInput}
+              autoFocus
+            />
+            <View style={styles.deleteActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setRenameId(null)}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmDeleteBtn} onPress={saveRename}>
+                <Text style={styles.confirmDeleteBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.removeAction} onPress={() => { setRenameId(null); setDeleteId(renameId); }}>
+              <Trash2 size={16} color={colors.error} />
+              <Text style={styles.removeActionText}>Delete memo</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -338,6 +397,27 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: colors.text,
   },
+  sortBtn: {
+    marginLeft: 'auto',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceAlt,
+  },
+  sortText: {
+    ...typography.caption,
+    color: colors.textDim,
+    fontFamily: 'Inter-Bold',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  summaryText: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -353,6 +433,28 @@ const styles = StyleSheet.create({
     ...typography.bodySm,
     color: colors.textMuted,
     textAlign: 'center',
+  },
+  renameInput: {
+    ...typography.body,
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    width: '100%',
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.md,
+  },
+  removeAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    padding: spacing.sm,
+  },
+  removeActionText: {
+    ...typography.bodySm,
+    color: colors.error,
   },
   memoCard: {
     flexDirection: 'row',
